@@ -1,0 +1,34 @@
+{
+  "base_names": [
+    "jiku",
+    "jeekoo",
+    "kivo",
+    "keevo",
+    "vestra",
+    "sequent",
+    "sengo",
+    "rensa",
+    "chaptr",
+    "vedra",
+    "noema",
+    "kiroku",
+    "kotoba"
+  ],
+  "prefixes": [
+    "get",
+    "use",
+    "try"
+  ],
+  "suffixes": [
+    "app",
+    "os",
+    "studio",
+    "lab"
+  ],
+  "tlds": [
+    "com",
+    "ai",
+    "dev",
+    "app"
+  ]
+}
