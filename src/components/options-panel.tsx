@@ -11,19 +11,21 @@ interface OptionsPanelProps {
   options: CheckOptions;
   onOptionsChange: (options: CheckOptions) => void;
   disabled?: boolean;
+  className?: string;
 }
 
 export function OptionsPanel({
   options,
   onOptionsChange,
   disabled,
+  className,
 }: OptionsPanelProps) {
   const update = (partial: Partial<CheckOptions>) => {
     onOptionsChange({ ...options, ...partial });
   };
 
   return (
-    <Card className="bg-zinc-900/50 border-zinc-800/60 shadow-xl shadow-black/20">
+    <Card className={`bg-zinc-900/50 border-zinc-800/60 shadow-xl shadow-black/20 flex flex-col ${className || ""}`}>
       <CardHeader className="pb-3">
         <CardTitle className="text-base font-medium flex items-center gap-2">
           <Settings2 className="h-4 w-4 text-emerald-400 glow-emerald" />

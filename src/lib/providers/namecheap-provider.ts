@@ -141,6 +141,7 @@ export class NamecheapProvider implements DomainProvider {
 
       return results;
     } catch (err) {
+      console.error("[Namecheap API Error]:", err);
       // On total failure, return all as unknown so RDAP can fallback
       return domains.map((domain) => ({
         domain: domain.domain,

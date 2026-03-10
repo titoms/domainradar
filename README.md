@@ -1,4 +1,4 @@
-# Domain Checker
+# DomainCheckr
 
 A local utility for **bulk domain name availability research** for product naming. Generates all meaningful domain combinations from base names, prefixes, suffixes, and TLDs — then checks availability progressively.
 

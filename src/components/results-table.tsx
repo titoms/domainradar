@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useReducer, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +24,8 @@ import {
   RotateCcw,
 } from "lucide-react";
 import type { DomainResult } from "@/lib/types";
+import { StatusBadge } from "./status-badge";
+import { PriceCell } from "./price-cell";
 
 interface ResultsTableProps {
   results: DomainResult[];
@@ -35,54 +37,41 @@ type SortKey = keyof DomainResult;
 type SortDir = "asc" | "desc";
 type StatusFilter = "" | "available" | "registered" | "unknown";
 
-function exportCSV(results: DomainResult[]) {
-  const headers = [
-    "Domain",
-    "Label",
-    "Base Name",
-    "Prefix",
-    "Suffix",
-    "TLD",
-    "Status",
-    "Premium",
-    "Premium Price",
-    "Standard Price",
-    "Aftermarket Price",
-    "Aftermarket Source",
-    "Source Used",
-    "Notes",
-  ];
-  const rows = results.map((r) => [
-    r.domain,
-    r.label,
-    r.baseName,
-    r.prefixUsed || "",
-    r.suffixUsed || "",
-    r.tld,
-    r.status,
-    r.premiumRegistration ? "Yes" : "No",
-    r.premiumRegistrationPrice ?? "",
-    r.standardRegistrationPrice ?? "",
-    r.aftermarketResalePrice ?? "",
-    r.aftermarketSource ?? "",
-    r.sourceUsed,
-    r.notes || "",
-  ]);
+type TableState = {
+  search: string;
+  filterStatus: StatusFilter;
+  filterPremium: boolean;
+  filterTld: string;
+  sortKey: SortKey;
+  sortDir: SortDir;
+};
 
-  const csv =
-    [headers, ...rows]
-      .map((row) =>
-        row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")
-      )
-      .join("\n");
+type TableAction =
+  | { type: "SET_SEARCH"; payload: string }
+  | { type: "SET_STATUS"; payload: StatusFilter }
+  | { type: "SET_PREMIUM"; payload: boolean }
+  | { type: "SET_TLD"; payload: string }
+  | { type: "TOGGLE_SORT"; payload: SortKey };
 
-  downloadBlob(csv, "domain-results.csv", "text/csv;charset=utf-8;");
-}
-
-function exportJSON(results: DomainResult[]) {
-  const json = JSON.stringify(results, null, 2);
-  downloadBlob(json, "domain-results.json", "application/json");
-}
+const tableReducer = (state: TableState, action: TableAction): TableState => {
+  switch (action.type) {
+    case "SET_SEARCH":
+      return { ...state, search: action.payload };
+    case "SET_STATUS":
+      return { ...state, filterStatus: action.payload };
+    case "SET_PREMIUM":
+      return { ...state, filterPremium: action.payload };
+    case "SET_TLD":
+      return { ...state, filterTld: action.payload };
+    case "TOGGLE_SORT":
+      if (state.sortKey === action.payload) {
+        return { ...state, sortDir: state.sortDir === "asc" ? "desc" : "asc" };
+      }
+      return { ...state, sortKey: action.payload, sortDir: "asc" };
+    default:
+      return state;
+  }
+};
 
 function downloadBlob(content: string, filename: string, type: string) {
   const blob = new Blob([content], { type });
@@ -94,121 +83,111 @@ function downloadBlob(content: string, filename: string, type: string) {
   URL.revokeObjectURL(url);
 }
 
+function exportCSV(results: DomainResult[]) {
+  const headers = [
+    "Domain", "Label", "Base Name", "Prefix", "Suffix", "TLD", 
+    "Status", "Premium", "Premium Price", "Standard Price", 
+    "Aftermarket Price", "Aftermarket Source", "Source Used", "Notes"
+  ];
+  const rows = results.map((r) => [
+    r.domain, r.label, r.baseName, r.prefixUsed || "", r.suffixUsed || "", r.tld,
+    r.status, r.premiumRegistration ? "Yes" : "No", r.premiumRegistrationPrice ?? "",
+    r.standardRegistrationPrice ?? "", r.aftermarketResalePrice ?? "",
+    r.aftermarketSource ?? "", r.sourceUsed, r.notes || ""
+  ]);
+  const csv = [headers, ...rows].map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
+  downloadBlob(csv, "domain-results.csv", "text/csv;charset=utf-8;");
+}
+
+function exportJSON(results: DomainResult[]) {
+  downloadBlob(JSON.stringify(results, null, 2), "domain-results.json", "application/json");
+}
+
 export function ResultsTable({ results, onRetryFailed, isRunning }: ResultsTableProps) {
-  const [search, setSearch] = useState("");
-  const [filterStatus, setFilterStatus] = useState<StatusFilter>("");
-  const [filterPremium, setFilterPremium] = useState(false);
-  const [filterTld, setFilterTld] = useState<string>("");
-  const [sortKey, setSortKey] = useState<SortKey>("domain");
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
-  const [copiedDomain, setCopiedDomain] = useState<string | null>(null);
+  const [state, dispatch] = useReducer(tableReducer, {
+    search: "",
+    filterStatus: "",
+    filterPremium: false,
+    filterTld: "",
+    sortKey: "domain",
+    sortDir: "asc",
+  });
 
-  // Get unique TLDs
-  const tlds = useMemo(
-    () => [...new Set(results.map((r) => r.tld))].sort(),
-    [results]
-  );
+  const [copiedText, setCopiedText] = useState<string | null>(null);
+  const [visibleCount, setVisibleCount] = useState(50);
+  const loadMoreRef = useRef<HTMLTableRowElement>(null);
 
-  // Count failed/unknown
-  const failedResults = useMemo(
-    () => results.filter((r) => r.status === "unknown"),
-    [results]
-  );
+  const hasPrefixes = useMemo(() => results.some((r) => r.prefixUsed && r.prefixUsed !== ""), [results]);
+  const hasSuffixes = useMemo(() => results.some((r) => r.suffixUsed && r.suffixUsed !== ""), [results]);
+  const tlds = useMemo(() => [...new Set(results.map((r) => r.tld))].sort(), [results]);
+  const failedResults = useMemo(() => results.filter((r) => r.status === "unknown"), [results]);
 
-  // Filter + sort
   const filtered = useMemo(() => {
     let data = [...results];
-
-    if (search) {
-      const q = search.toLowerCase();
-      data = data.filter(
-        (r) =>
-          r.domain.includes(q) ||
-          r.baseName.includes(q) ||
-          r.label.includes(q)
-      );
+    if (state.search) {
+      const q = state.search.toLowerCase();
+      data = data.filter(r => r.domain.includes(q) || r.baseName.includes(q) || r.label.includes(q));
     }
-
-    if (filterStatus) {
-      data = data.filter((r) => r.status === filterStatus);
-    }
-
-    if (filterPremium) {
-      data = data.filter((r) => r.premiumRegistration);
-    }
-
-    if (filterTld) {
-      data = data.filter((r) => r.tld === filterTld);
-    }
+    if (state.filterStatus) data = data.filter(r => r.status === state.filterStatus);
+    if (state.filterPremium) data = data.filter(r => r.premiumRegistration);
+    if (state.filterTld) data = data.filter(r => r.tld === state.filterTld);
 
     data.sort((a, b) => {
-      const aVal = a[sortKey];
-      const bVal = b[sortKey];
+      const aVal = a[state.sortKey];
+      const bVal = b[state.sortKey];
       if (aVal == null && bVal == null) return 0;
       if (aVal == null) return 1;
       if (bVal == null) return -1;
-      const cmp = String(aVal).localeCompare(String(bVal), undefined, {
-        numeric: true,
-      });
-      return sortDir === "asc" ? cmp : -cmp;
+      const cmp = String(aVal).localeCompare(String(bVal), undefined, { numeric: true });
+      return state.sortDir === "asc" ? cmp : -cmp;
     });
-
     return data;
-  }, [results, search, filterStatus, filterPremium, filterTld, sortKey, sortDir]);
+  }, [results, state]);
 
-  const toggleSort = (key: SortKey) => {
-    if (sortKey === key) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir("asc");
-    }
-  };
+  const visibleResults = useMemo(() => filtered.slice(0, visibleCount), [filtered, visibleCount]);
 
-  const copyDomain = (domain: string) => {
-    navigator.clipboard.writeText(domain);
-    setCopiedDomain(domain);
-    setTimeout(() => setCopiedDomain(null), 1500);
-  };
+  useEffect(() => {
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting && visibleCount < filtered.length) {
+        setVisibleCount(prev => prev + 50);
+      }
+    }, { threshold: 0.1 });
+    if (loadMoreRef.current) observer.observe(loadMoreRef.current);
+    return () => observer.disconnect();
+  }, [visibleCount, filtered.length]);
 
-  const statusBadge = (status: string) => {
-    switch (status) {
-      case "available":
-        return (
-          <Badge className="bg-emerald-950/50 text-emerald-400 border-emerald-800/50 text-[10px] font-normal">
-            Available
-          </Badge>
-        );
-      case "registered":
-        return (
-          <Badge className="bg-red-950/50 text-red-400 border-red-800/50 text-[10px] font-normal">
-            Registered
-          </Badge>
-        );
-      default:
-        return (
-          <Badge className="bg-amber-950/50 text-amber-400 border-amber-800/50 text-[10px] font-normal">
-            Unknown
-          </Badge>
-        );
-    }
-  };
+  const [prevFilteredLength, setPrevFilteredLength] = useState(filtered.length);
+  if (filtered.length !== prevFilteredLength) {
+    setPrevFilteredLength(filtered.length);
+    setVisibleCount(50);
+  }
 
-  const formatPrice = (price: number | null, currency: string | null) => {
-    if (price == null) return <span className="text-zinc-600">—</span>;
-    return (
-      <span>
-        {currency === "USD" ? "$" : ""}
-        {price.toFixed(2)}
-      </span>
-    );
+  const copyText = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedText(text);
+    setTimeout(() => setCopiedText(null), 1500);
   };
 
   if (results.length === 0) return null;
 
+  const tableHeaders = [
+    { key: "domain" as SortKey, label: "Domain", show: true },
+    { key: "label" as SortKey, label: "Label", show: true },
+    { key: "baseName" as SortKey, label: "Base Name", show: true },
+    { key: "prefixUsed" as SortKey, label: "Prefix", show: hasPrefixes },
+    { key: "suffixUsed" as SortKey, label: "Suffix", show: hasSuffixes },
+    { key: "status" as SortKey, label: "Status", show: true },
+    { key: "premiumRegistration" as SortKey, label: "Premium", show: true },
+    { key: "premiumRegistrationPrice" as SortKey, label: "Prem. Price", show: true },
+    { key: "standardRegistrationPrice" as SortKey, label: "Std. Price", show: true },
+    { key: "aftermarketResalePrice" as SortKey, label: "Aftermkt", show: true },
+    { key: "sourceUsed" as SortKey, label: "Source", show: true },
+    { key: "notes" as SortKey, label: "Notes", show: true },
+  ].filter((h) => h.show);
+
   return (
     <Card className="bg-zinc-900/50 border-zinc-800/60 shadow-xl shadow-black/20">
-      <CardHeader className="pb-3">
+      <CardHeader className="pb-3 border-b border-zinc-800/40">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <CardTitle className="text-base font-medium flex items-center gap-2">
             <Filter className="h-4 w-4 text-cyan-400" />
@@ -217,207 +196,135 @@ export function ResultsTable({ results, onRetryFailed, isRunning }: ResultsTable
           <div className="flex items-center gap-2">
             {failedResults.length > 0 && onRetryFailed && !isRunning && (
               <Button
-                variant="outline"
-                size="sm"
-                onClick={() => onRetryFailed(failedResults)}
+                variant="outline" size="sm" onClick={() => onRetryFailed(failedResults)}
                 className="h-7 text-xs border-amber-900/50 text-amber-400 hover:bg-amber-950/30 hover:text-amber-300"
               >
-                <RotateCcw className="h-3 w-3 mr-1" />
-                Retry {failedResults.length} failed
+                <RotateCcw className="h-3 w-3 mr-1" /> Retry {failedResults.length} failed
               </Button>
             )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => exportJSON(results)}
-              className="h-7 text-xs border-zinc-700 bg-zinc-800 hover:bg-zinc-700"
-            >
-              <Download className="h-3 w-3 mr-1" />
-              JSON
+            <Button variant="outline" size="sm" onClick={() => exportJSON(results)} className="h-7 text-xs border-zinc-700 bg-zinc-800">
+              <Download className="h-3 w-3 mr-1" /> JSON
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => exportCSV(results)}
-              className="h-7 text-xs border-zinc-700 bg-zinc-800 hover:bg-zinc-700"
-            >
-              <Download className="h-3 w-3 mr-1" />
-              CSV
+            <Button variant="outline" size="sm" onClick={() => exportCSV(results)} className="h-7 text-xs border-zinc-700 bg-zinc-800">
+              <Download className="h-3 w-3 mr-1" /> CSV
             </Button>
           </div>
         </div>
       </CardHeader>
-      <CardContent className="space-y-3">
-        {/* Filters */}
+      <CardContent className="space-y-3 pt-4">
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative flex-1 min-w-[200px]">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500" />
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
             <Input
               placeholder="Search domain or base name..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="h-8 pl-8 text-sm bg-zinc-950 border-zinc-700"
+              value={state.search}
+              onChange={(e) => dispatch({ type: "SET_SEARCH", payload: e.target.value })}
+              className="h-9 pl-9 text-sm bg-zinc-950 border-zinc-700/50"
             />
           </div>
           <select
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value as StatusFilter)}
-            className="h-8 rounded-md border border-zinc-700 bg-zinc-950 px-2 text-xs text-zinc-300"
+            value={state.filterStatus}
+            onChange={(e) => dispatch({ type: "SET_STATUS", payload: e.target.value as StatusFilter })}
+            className="h-9 rounded-md border border-zinc-700/50 bg-zinc-950 px-3 text-xs text-zinc-300 focus:ring-1 focus:ring-blue-500/50"
           >
             <option value="">All Statuses</option>
             <option value="available">✅ Available</option>
             <option value="registered">🔴 Registered</option>
             <option value="unknown">⚠️ Unknown / Failed</option>
           </select>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-700/50 px-3 h-9 rounded-md">
             <Checkbox
-              id="filter-premium"
-              checked={filterPremium}
-              onCheckedChange={(c) => setFilterPremium(c === true)}
-              className="border-zinc-600"
+              id="filter-p-res" checked={state.filterPremium}
+              onCheckedChange={(c) => dispatch({ type: "SET_PREMIUM", payload: c === true })}
             />
-            <label htmlFor="filter-premium" className="text-xs text-zinc-400 cursor-pointer whitespace-nowrap">
-              Premium only
-            </label>
+            <label htmlFor="filter-p-res" className="text-xs text-zinc-400 cursor-pointer">Premium only</label>
           </div>
           <select
-            value={filterTld}
-            onChange={(e) => setFilterTld(e.target.value)}
-            className="h-8 rounded-md border border-zinc-700 bg-zinc-950 px-2 text-xs text-zinc-300"
+            value={state.filterTld}
+            onChange={(e) => dispatch({ type: "SET_TLD", payload: e.target.value })}
+            className="h-9 rounded-md border border-zinc-700/50 bg-zinc-950 px-3 text-xs text-zinc-300"
           >
             <option value="">All TLDs</option>
-            {tlds.map((tld) => (
-              <option key={tld} value={tld}>
-                .{tld}
-              </option>
-            ))}
+            {tlds.map(tld => <option key={tld} value={tld}>.{tld}</option>)}
           </select>
         </div>
 
-        {/* Table */}
-        <div className="rounded-lg border border-zinc-800 overflow-auto max-h-[600px]">
-          <Table>
-            <TableHeader>
-              <TableRow className="border-zinc-800 hover:bg-transparent">
-                {[
-                  { key: "domain" as SortKey, label: "Domain" },
-                  { key: "label" as SortKey, label: "Label" },
-                  { key: "baseName" as SortKey, label: "Base Name" },
-                  { key: "prefixUsed" as SortKey, label: "Prefix" },
-                  { key: "suffixUsed" as SortKey, label: "Suffix" },
-                  { key: "status" as SortKey, label: "Status" },
-                  { key: "premiumRegistration" as SortKey, label: "Premium" },
-                  {
-                    key: "premiumRegistrationPrice" as SortKey,
-                    label: "Prem. Price",
-                  },
-                  {
-                    key: "standardRegistrationPrice" as SortKey,
-                    label: "Std. Price",
-                  },
-                  {
-                    key: "aftermarketResalePrice" as SortKey,
-                    label: "Aftermkt",
-                  },
-                  { key: "sourceUsed" as SortKey, label: "Source" },
-                  { key: "notes" as SortKey, label: "Notes" },
-                ].map(({ key, label }) => (
-                  <TableHead
-                    key={key}
-                    className="text-zinc-400 text-[11px] font-medium cursor-pointer hover:text-zinc-200 whitespace-nowrap"
-                    onClick={() => toggleSort(key)}
-                  >
-                    <span className="flex items-center gap-1">
-                      {label}
-                      <ArrowUpDown className="h-3 w-3 opacity-40" />
-                    </span>
-                  </TableHead>
-                ))}
-                <TableHead className="text-zinc-400 text-[11px] font-medium w-8" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filtered.length === 0 ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={13}
-                    className="text-center text-zinc-500 py-8 text-sm"
-                  >
-                    No results match your filters
-                  </TableCell>
+        <div className="rounded-lg border border-zinc-800/60 overflow-hidden bg-zinc-950/30">
+          <div className="overflow-auto max-h-[600px] relative">
+            <Table>
+              <TableHeader className="sticky top-0 bg-zinc-900/95 backdrop-blur-md z-10">
+                <TableRow className="border-zinc-800 hover:bg-transparent">
+                  {tableHeaders.map(({ key, label }) => (
+                    <TableHead
+                      key={key} onClick={() => dispatch({ type: "TOGGLE_SORT", payload: key })}
+                      className="text-zinc-400 text-[11px] font-semibold cursor-pointer hover:text-zinc-200 h-10"
+                    >
+                      <span className="flex items-center gap-1.5 px-1 whitespace-nowrap">
+                        {label}
+                        <ArrowUpDown className={`h-3 w-3 ${state.sortKey === key ? "text-blue-400" : "opacity-30"}`} />
+                      </span>
+                    </TableHead>
+                  ))}
+                  <TableHead className="w-10" />
                 </TableRow>
-              ) : (
-                filtered.map((r, i) => (
-                  <TableRow
-                    key={`${r.domain}-${i}`}
-                    className="border-zinc-800/50 hover:bg-zinc-800/30 text-xs"
-                  >
-                    <TableCell className="font-mono text-zinc-200 whitespace-nowrap">
-                      {r.domain}
-                    </TableCell>
-                    <TableCell className="text-zinc-400">{r.label}</TableCell>
-                    <TableCell className="text-zinc-400">{r.baseName}</TableCell>
-                    <TableCell className="text-zinc-500">
-                      {r.prefixUsed || "—"}
-                    </TableCell>
-                    <TableCell className="text-zinc-500">
-                      {r.suffixUsed || "—"}
-                    </TableCell>
-                    <TableCell>{statusBadge(r.status)}</TableCell>
-                    <TableCell>
-                      {r.premiumRegistration ? (
-                        <Badge className="bg-purple-950/50 text-purple-400 border-purple-800/50 text-[10px] font-normal">
-                          Yes
-                        </Badge>
-                      ) : (
-                        <span className="text-zinc-600">No</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-zinc-300">
-                      {formatPrice(r.premiumRegistrationPrice, r.currency)}
-                    </TableCell>
-                    <TableCell className="text-zinc-300">
-                      {formatPrice(r.standardRegistrationPrice, r.currency)}
-                    </TableCell>
-                    <TableCell className="text-zinc-300">
-                      {r.aftermarketResalePrice != null ? (
-                        formatPrice(r.aftermarketResalePrice, r.currency)
-                      ) : (
-                        <span className="text-zinc-600 text-[10px]">
-                          Not available
-                        </span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant="outline"
-                        className="text-[10px] font-normal border-zinc-700 text-zinc-400"
-                      >
-                        {r.sourceUsed}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="max-w-[200px] truncate text-zinc-500 text-[11px]">
-                      {r.notes || "—"}
-                    </TableCell>
-                    <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 w-6 p-0"
-                        onClick={() => copyDomain(r.domain)}
-                      >
-                        {copiedDomain === r.domain ? (
-                          <Check className="h-3 w-3 text-emerald-400" />
-                        ) : (
-                          <Copy className="h-3 w-3 text-zinc-500" />
-                        )}
-                      </Button>
+              </TableHeader>
+              <TableBody>
+                {filtered.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={tableHeaders.length + 1} className="text-center text-zinc-500 py-16 text-sm">
+                      No results match your filters
                     </TableCell>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+                ) : (
+                  <>
+                    {visibleResults.map((r) => (
+                      <TableRow key={r.domain} className="border-zinc-800/50 hover:bg-zinc-800/40 text-xs transition-colors group">
+                        <TableCell className="font-mono text-zinc-200 whitespace-nowrap font-medium">
+                          <div className="flex items-center gap-1.5">
+                            {r.domain}
+                            <Button variant="ghost" size="sm" className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => copyText(r.domain)}>
+                              {copiedText === r.domain ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3 text-zinc-500 hover:text-zinc-300" />}
+                            </Button>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-zinc-400">{r.label}</TableCell>
+                        <TableCell className="text-zinc-400">{r.baseName}</TableCell>
+                        {hasPrefixes && <TableCell className="text-zinc-500 italic">{r.prefixUsed || "—"}</TableCell>}
+                        {hasSuffixes && <TableCell className="text-zinc-500 italic">{r.suffixUsed || "—"}</TableCell>}
+                        <TableCell><StatusBadge status={r.status} /></TableCell>
+                        <TableCell>
+                          {r.premiumRegistration ? <Badge className="bg-purple-950/50 text-purple-400 border-purple-800/50 text-[10px]">Yes</Badge> : <span className="text-zinc-600 px-1">No</span>}
+                        </TableCell>
+                        <TableCell><PriceCell price={r.premiumRegistrationPrice} currency={r.currency} /></TableCell>
+                        <TableCell><PriceCell price={r.standardRegistrationPrice} currency={r.currency} /></TableCell>
+                        <TableCell>
+                          <PriceCell price={r.aftermarketResalePrice} currency={r.currency} fallback="—" />
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="text-[10px] font-normal border-zinc-700/80 text-zinc-400 bg-zinc-900/50">{r.sourceUsed}</Badge>
+                        </TableCell>
+                        <TableCell className="max-w-[200px] truncate text-zinc-500 text-[11px]">{r.notes || "—"}</TableCell>
+                        <TableCell>
+                          {r.notes && (
+                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Copy Notes" onClick={() => copyText(r.notes!)}>
+                              {copiedText === r.notes ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5 text-zinc-500 group-hover:text-zinc-300" />}
+                            </Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {visibleCount < filtered.length && (
+                      <TableRow ref={loadMoreRef}>
+                        <TableCell colSpan={tableHeaders.length + 1} className="py-8 text-center text-zinc-500 text-xs">
+                          Loading more results...
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </>
+                )}
+              </TableBody>
+            </Table>
+          </div>
         </div>
       </CardContent>
     </Card>

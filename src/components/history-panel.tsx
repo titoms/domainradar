@@ -3,12 +3,13 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { History, Trash2, Eye, CheckCircle2, XCircle, HelpCircle } from "lucide-react";
+import { History, Trash2, Eye, CheckCircle2, XCircle, HelpCircle, RotateCcw } from "lucide-react";
 import type { SavedAnalysis } from "@/lib/types";
 
 interface HistoryPanelProps {
   analyses: SavedAnalysis[];
   onLoad: (analysis: SavedAnalysis) => void;
+  onRetry: (analysis: SavedAnalysis) => void;
   onDelete: (id: string) => void;
   onClear: () => void;
 }
@@ -23,7 +24,7 @@ function formatDate(ts: number): string {
   });
 }
 
-export function HistoryPanel({ analyses, onLoad, onDelete, onClear }: HistoryPanelProps) {
+export function HistoryPanel({ analyses, onLoad, onRetry, onDelete, onClear }: HistoryPanelProps) {
   if (analyses.length === 0) return null;
 
   return (
@@ -81,6 +82,15 @@ export function HistoryPanel({ analyses, onLoad, onDelete, onClear }: HistoryPan
                 </div>
               </div>
               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onRetry(a)}
+                  className="h-6 px-2 text-[10px] text-zinc-400 hover:text-emerald-400"
+                >
+                  <RotateCcw className="h-3 w-3 mr-1" />
+                  Retry
+                </Button>
                 <Button
                   variant="ghost"
                   size="sm"

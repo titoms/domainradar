@@ -41,6 +41,5 @@ export const checkRequestSchema = z.object({
   })).optional(),
 });
 
-export type DomainInputSchema = z.infer<typeof domainInputSchema>;
 export type CheckOptionsSchema = z.infer<typeof checkOptionsSchema>;
 export type CheckRequestSchema = z.infer<typeof checkRequestSchema>;

@@ -151,7 +151,7 @@ export async function processBatches(
                   results[idx] = {
                     ...rdapResult,
                     sourceUsed: "hybrid",
-                    notes: "Availability from RDAP fallback. Namecheap was primary but did not return a useful result.",
+                    notes: `Availability from RDAP fallback. Original Namecheap info: ${results[idx].notes || "None"}`,
                   };
                 }
               }

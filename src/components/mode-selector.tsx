@@ -14,6 +14,7 @@ interface ModeSelectorProps {
   disabled?: boolean;
   credentials: NamecheapCredentials;
   onCredentialsChange: (creds: NamecheapCredentials) => void;
+  className?: string;
 }
 
 export function ModeSelector({
@@ -22,6 +23,7 @@ export function ModeSelector({
   disabled,
   credentials,
   onCredentialsChange,
+  className,
 }: ModeSelectorProps) {
   const [showKey, setShowKey] = useState(false);
 
@@ -37,7 +39,7 @@ export function ModeSelector({
   };
 
   return (
-    <Card className="bg-zinc-900/50 border-zinc-800/60 shadow-xl shadow-black/20">
+    <Card className={`bg-zinc-900/50 border-zinc-800/60 shadow-xl shadow-black/20 ${className || ""}`}>
       <CardHeader className="pb-3">
         <CardTitle className="text-base font-medium flex items-center gap-2">
           <Shield className="h-4 w-4 text-purple-400 glow-purple" />

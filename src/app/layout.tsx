@@ -19,7 +19,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Domain Checker — Bulk Availability Research",
+  title: "DomainCheckr — Bulk Availability Research",
   description:
     "A local utility for bulk domain name availability checking with RDAP and Namecheap support. Test domain combinations for product naming research.",
 };
@@ -30,9 +30,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className="dark" suppressHydrationWarning>
       <body
         className={`${ibmPlexMono.variable} ${geist.variable} ${geistMono.variable} antialiased`}
+        suppressHydrationWarning
       >
         {children}
       </body>

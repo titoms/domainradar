@@ -53,7 +53,8 @@ type CheckerAction =
   | { type: "SET_ERRORS"; payload: string[] }
   | { type: "SET_HISTORY"; payload: Omit<SavedAnalysis, "results">[] }
   | { type: "LOAD_ANALYSIS"; payload: { input: DomainInput; results: DomainResult[] } }
-  | { type: "CLEAR_HISTORY" };
+  | { type: "CLEAR_HISTORY" }
+  | { type: "CLEAR_RESULTS" };
 
 function checkerReducer(state: CheckerState, action: CheckerAction): CheckerState {
   switch (action.type) {
@@ -103,6 +104,8 @@ function checkerReducer(state: CheckerState, action: CheckerAction): CheckerStat
       };
     case "CLEAR_HISTORY":
       return { ...state, history: [] };
+    case "CLEAR_RESULTS":
+      return { ...state, results: [], progress: null, errors: [] };
     default:
       return state;
   }
@@ -313,6 +316,21 @@ export function useDomainChecker() {
         type: "LOAD_ANALYSIS",
         payload: { input: full.input, results: full.results },
       });
+      // also set the mode so it matches the analysis
+      dispatch({ type: "SET_MODE", payload: full.mode || "rdap" });
+    },
+    []
+  );
+
+  // Retry analysis (populate input without running/loading results)
+  const retryAnalysis = useCallback(
+    async (analysis: Omit<SavedAnalysis, "results">) => {
+      const res = await fetch(`/api/analyses/${analysis.id}`).catch(() => null);
+      if (!res?.ok) return;
+      const full: SavedAnalysis = await res.json();
+      dispatch({ type: "SET_INPUT", payload: full.input });
+      dispatch({ type: "SET_MODE", payload: full.mode || "rdap" });
+      dispatch({ type: "CLEAR_RESULTS" });
     },
     []
   );
@@ -338,6 +356,7 @@ export function useDomainChecker() {
     runCheck,
     cancel,
     loadAnalysis,
+    retryAnalysis,
     deleteAnalysis,
     clearHistory,
   };

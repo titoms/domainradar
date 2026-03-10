@@ -12,18 +12,46 @@ const DEFAULT_CREDS: NamecheapCredentials = {
 // Set of subscribers for useSyncExternalStore
 const listeners = new Set<() => void>();
 
+let cachedSnapshot: NamecheapCredentials | null = null;
+let cachedRaw: string | null = null;
+
 function subscribe(callback: () => void): () => void {
   listeners.add(callback);
-  return () => listeners.delete(callback);
+  
+  const handleStorage = (e: StorageEvent) => {
+    if (e.key === CREDS_STORAGE_KEY) {
+      callback();
+    }
+  };
+  
+  if (typeof window !== "undefined") {
+    window.addEventListener("storage", handleStorage);
+  }
+
+  return () => {
+    listeners.delete(callback);
+    if (typeof window !== "undefined") {
+      window.removeEventListener("storage", handleStorage);
+    }
+  };
 }
 
 function getSnapshot(): NamecheapCredentials {
+  if (typeof window === "undefined") return DEFAULT_CREDS;
+  
   try {
-    const raw =
-      typeof window !== "undefined"
-        ? localStorage.getItem(CREDS_STORAGE_KEY)
-        : null;
-    return raw ? JSON.parse(raw) : DEFAULT_CREDS;
+    const raw = localStorage.getItem(CREDS_STORAGE_KEY);
+    if (raw === cachedRaw && cachedSnapshot !== null) {
+      return cachedSnapshot;
+    }
+    
+    cachedRaw = raw;
+    if (raw) {
+      cachedSnapshot = JSON.parse(raw);
+    } else {
+      cachedSnapshot = DEFAULT_CREDS;
+    }
+    return cachedSnapshot!;
   } catch {
     return DEFAULT_CREDS;
   }

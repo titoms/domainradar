@@ -94,7 +94,7 @@ export function ProgressPanel({
           <div className="space-y-1 max-h-24 overflow-y-auto">
             {errors.slice(-5).map((err, i) => (
               <div
-                key={i}
+                key={`${err.substring(0, 50)}-${progress?.completed || i}`}
                 className="flex items-start gap-1.5 text-[11px] text-amber-400/80"
               >
                 <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useRef, useState, KeyboardEvent } from "react";
+import React, { useCallback, useRef, useReducer, KeyboardEvent, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,8 +11,10 @@ import { domainInputSchema } from "@/lib/schemas";
 import type { DomainInput } from "@/lib/types";
 
 interface JsonInputProps {
+  value?: DomainInput | null;
   onInputChange: (input: DomainInput | null) => void;
   disabled?: boolean;
+  className?: string;
 }
 
 type InputTab = "json" | "builder";
@@ -69,11 +71,19 @@ function TagInput({
     }
   };
 
+  const inputId = `tag-input-${label.toLowerCase().replace(/\s+/g, "-")}`;
+
   return (
     <div className="space-y-1.5">
-      <Label className="text-[11px] text-zinc-500 uppercase tracking-wider font-medium">{label}</Label>
+      <Label
+        htmlFor={inputId}
+        className="text-[11px] text-zinc-500 uppercase tracking-wider font-medium cursor-pointer"
+      >
+        {label}
+      </Label>
       <div className="flex items-center gap-1.5">
         <Input
+          id={inputId}
           type="text"
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
@@ -98,15 +108,15 @@ function TagInput({
       </div>
       {tags.length > 0 && (
         <div className="flex flex-wrap gap-1 pt-0.5">
-          {tags.map((tag, i) => (
+          {tags.map((tag) => (
             <Badge
-              key={`${tag}-${i}`}
+              key={tag}
               className="bg-blue-950/40 text-blue-300 border-blue-800/30 text-[11px] font-normal pl-2 pr-1 py-0.5 gap-1 shadow-[0_0_8px_rgba(59,130,246,0.08)]"
             >
               {tag}
               <button
                 type="button"
-                onClick={() => onRemove(i)}
+                onClick={() => onRemove(tags.indexOf(tag))}
                 disabled={disabled}
                 className="hover:bg-blue-800/30 rounded-full p-0.5 transition-colors"
               >
@@ -120,31 +130,98 @@ function TagInput({
   );
 }
 
-export function JsonInput({ onInputChange, disabled }: JsonInputProps) {
-  const [tab, setTab] = useState<InputTab>("builder");
-  const [rawJson, setRawJson] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [parsedSummary, setParsedSummary] = useState<{
+type JsonInputState = {
+  tab: InputTab;
+  rawJson: string;
+  error: string | null;
+  parsedSummary: {
     baseNames: number;
     prefixes: number;
     suffixes: number;
     tlds: number;
-  } | null>(null);
+  } | null;
+  builderData: DomainInput;
+};
+
+type JsonInputAction =
+  | { type: "SET_TAB"; payload: InputTab }
+  | { type: "SET_RAW_JSON"; payload: string }
+  | { type: "SET_ERROR"; payload: string | null }
+  | { type: "SET_SUMMARY"; payload: JsonInputState["parsedSummary"] }
+  | { type: "SET_BUILDER_DATA"; payload: DomainInput }
+  | { type: "CLEAR" };
+
+const jsonInputReducer = (state: JsonInputState, action: JsonInputAction): JsonInputState => {
+  switch (action.type) {
+    case "SET_TAB":
+      return { ...state, tab: action.payload };
+    case "SET_RAW_JSON":
+      return { ...state, rawJson: action.payload };
+    case "SET_ERROR":
+      return { ...state, error: action.payload };
+    case "SET_SUMMARY":
+      return { ...state, parsedSummary: action.payload };
+    case "SET_BUILDER_DATA":
+      return { ...state, builderData: action.payload };
+    case "CLEAR":
+      return {
+        ...state,
+        rawJson: "",
+        error: null,
+        parsedSummary: null,
+        builderData: { base_names: [], prefixes: [], suffixes: [], tlds: [] }
+      };
+    default:
+      return state;
+  }
+};
+
+export function JsonInput({ value, onInputChange, disabled, className }: JsonInputProps) {
+  const [state, dispatch] = useReducer(jsonInputReducer, {
+    tab: "builder",
+    rawJson: "",
+    error: null,
+    parsedSummary: null,
+    builderData: {
+      base_names: [],
+      prefixes: [],
+      suffixes: [],
+      tlds: [],
+    },
+  });
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Builder state
-  const [builderData, setBuilderData] = useState<DomainInput>({
-    base_names: [],
-    prefixes: [],
-    suffixes: [],
-    tlds: [],
-  });
+  // Sync external value to local state
+  React.useEffect(() => {
+    if (value) {
+      dispatch({ type: "SET_BUILDER_DATA", payload: value });
+      dispatch({
+        type: "SET_SUMMARY",
+        payload: {
+          baseNames: value.base_names.length,
+          prefixes: value.prefixes.length,
+          suffixes: value.suffixes.length,
+          tlds: value.tlds.length,
+        }
+      });
+      // Try to parse stringified value to raw JSON just in case they switch tabs
+      try {
+        dispatch({ type: "SET_RAW_JSON", payload: JSON.stringify(value, null, 2) });
+      } catch {
+        // ignore
+      }
+    } else if (value === null && state.builderData.base_names.length > 0) {
+       // if completely cleared externally 
+       dispatch({ type: "CLEAR" });
+    }
+  }, [value]);
 
   const validateAndSet = useCallback(
     (text: string) => {
-      setRawJson(text);
-      setError(null);
-      setParsedSummary(null);
+      dispatch({ type: "SET_RAW_JSON", payload: text });
+      dispatch({ type: "SET_ERROR", payload: null });
+      dispatch({ type: "SET_SUMMARY", payload: null });
       onInputChange(null);
 
       if (!text.trim()) return;
@@ -157,19 +234,22 @@ export function JsonInput({ onInputChange, disabled }: JsonInputProps) {
           const issues = result.error.issues
             .map((i) => `${i.path.join(".")}: ${i.message}`)
             .join("; ");
-          setError(issues);
+          dispatch({ type: "SET_ERROR", payload: issues });
           return;
         }
 
-        setParsedSummary({
-          baseNames: result.data.base_names.length,
-          prefixes: result.data.prefixes.length,
-          suffixes: result.data.suffixes.length,
-          tlds: result.data.tlds.length,
+        dispatch({
+          type: "SET_SUMMARY",
+          payload: {
+            baseNames: result.data.base_names.length,
+            prefixes: result.data.prefixes.length,
+            suffixes: result.data.suffixes.length,
+            tlds: result.data.tlds.length,
+          }
         });
         onInputChange(result.data);
       } catch {
-        setError("Invalid JSON syntax. Please check the formatting.");
+        dispatch({ type: "SET_ERROR", payload: "Invalid JSON syntax. Please check the formatting." });
       }
     },
     [onInputChange]
@@ -190,29 +270,31 @@ export function JsonInput({ onInputChange, disabled }: JsonInputProps) {
     [validateAndSet]
   );
 
-  // Builder: validate and notify parent whenever tags change
   const updateBuilder = useCallback(
     (newData: DomainInput) => {
-      setBuilderData(newData);
+      dispatch({ type: "SET_BUILDER_DATA", payload: newData });
       const result = domainInputSchema.safeParse(newData);
       if (result.success && result.data.base_names.length > 0 && result.data.tlds.length > 0) {
         onInputChange(result.data);
-        setError(null);
-        setParsedSummary({
-          baseNames: result.data.base_names.length,
-          prefixes: result.data.prefixes.length,
-          suffixes: result.data.suffixes.length,
-          tlds: result.data.tlds.length,
+        dispatch({ type: "SET_ERROR", payload: null });
+        dispatch({
+          type: "SET_SUMMARY",
+          payload: {
+            baseNames: result.data.base_names.length,
+            prefixes: result.data.prefixes.length,
+            suffixes: result.data.suffixes.length,
+            tlds: result.data.tlds.length,
+          }
         });
       } else {
         onInputChange(null);
-        setParsedSummary(null);
+        dispatch({ type: "SET_SUMMARY", payload: null });
         if (newData.base_names.length === 0 && newData.tlds.length === 0) {
-          setError(null);
+          dispatch({ type: "SET_ERROR", payload: null });
         } else if (newData.base_names.length === 0) {
-          setError("At least one base name is required");
+          dispatch({ type: "SET_ERROR", payload: "At least one base name is required" });
         } else if (newData.tlds.length === 0) {
-          setError("At least one TLD is required");
+          dispatch({ type: "SET_ERROR", payload: "At least one TLD is required" });
         }
       }
     },
@@ -220,27 +302,25 @@ export function JsonInput({ onInputChange, disabled }: JsonInputProps) {
   );
 
   const handleAddTag = (field: keyof DomainInput, tag: string) => {
-    const updated = { ...builderData, [field]: [...builderData[field], tag] };
+    const updated = { ...state.builderData, [field]: [...state.builderData[field], tag] };
     updateBuilder(updated);
   };
 
   const handleRemoveTag = (field: keyof DomainInput, index: number) => {
     const updated = {
-      ...builderData,
-      [field]: builderData[field].filter((_, i) => i !== index),
+      ...state.builderData,
+      [field]: state.builderData[field].filter((_, i) => i !== index),
     };
     updateBuilder(updated);
   };
 
-  // When switching to builder, try to populate from current JSON
   const switchToBuilder = () => {
-    setTab("builder");
-    if (rawJson.trim()) {
+    dispatch({ type: "SET_TAB", payload: "builder" });
+    if (state.rawJson.trim()) {
       try {
-        const parsed = JSON.parse(rawJson);
+        const parsed = JSON.parse(state.rawJson);
         const result = domainInputSchema.safeParse(parsed);
         if (result.success) {
-          setBuilderData(result.data);
           updateBuilder(result.data);
           return;
         }
@@ -248,24 +328,23 @@ export function JsonInput({ onInputChange, disabled }: JsonInputProps) {
         // ignore
       }
     }
-    updateBuilder(builderData);
+    updateBuilder(state.builderData);
   };
 
-  // When switching to JSON, serialize builder data
   const switchToJson = () => {
-    setTab("json");
-    if (builderData.base_names.length > 0 || builderData.tlds.length > 0) {
-      const json = JSON.stringify(builderData, null, 2);
+    dispatch({ type: "SET_TAB", payload: "json" });
+    if (state.builderData.base_names.length > 0 || state.builderData.tlds.length > 0) {
+      const json = JSON.stringify(state.builderData, null, 2);
       validateAndSet(json);
     }
   };
 
   return (
-    <Card className="bg-zinc-900/50 border-zinc-800/60 shadow-xl shadow-black/20">
-      <CardHeader className="pb-3">
+    <Card className={`bg-zinc-900/50 border-zinc-800/60 shadow-xl shadow-black/20 ${className || ""}`}>
+      <CardHeader className="pb-3 border-b border-zinc-800/40">
         <div className="flex items-center justify-between">
           <CardTitle className="text-base font-medium flex items-center gap-2">
-            <FileJson className="h-4 w-4 text-blue-400 glow-blue" />
+            <FileJson className="h-4 w-4 text-blue-400" />
             Input Configuration
           </CardTitle>
           <div className="flex items-center rounded-md bg-zinc-800/80 p-0.5 border border-zinc-700/40">
@@ -273,7 +352,7 @@ export function JsonInput({ onInputChange, disabled }: JsonInputProps) {
               onClick={switchToJson}
               disabled={disabled}
               className={`text-[11px] px-2.5 py-1 rounded transition-all ${
-                tab === "json"
+                state.tab === "json"
                   ? "bg-zinc-700 text-zinc-200 shadow-sm"
                   : "text-zinc-500 hover:text-zinc-300"
               } disabled:opacity-50`}
@@ -285,7 +364,7 @@ export function JsonInput({ onInputChange, disabled }: JsonInputProps) {
               onClick={switchToBuilder}
               disabled={disabled}
               className={`text-[11px] px-2.5 py-1 rounded transition-all ${
-                tab === "builder"
+                state.tab === "builder"
                   ? "bg-zinc-700 text-zinc-200 shadow-sm"
                   : "text-zinc-500 hover:text-zinc-300"
               } disabled:opacity-50`}
@@ -296,8 +375,8 @@ export function JsonInput({ onInputChange, disabled }: JsonInputProps) {
           </div>
         </div>
       </CardHeader>
-      <CardContent className="space-y-3">
-        {tab === "json" ? (
+      <CardContent className="space-y-3 pt-4">
+        {state.tab === "json" ? (
           <>
             <div className="space-y-2">
               <Label htmlFor="json-input" className="text-xs text-zinc-400">
@@ -307,7 +386,7 @@ export function JsonInput({ onInputChange, disabled }: JsonInputProps) {
                 id="json-input"
                 className="w-full min-h-[160px] rounded-lg border border-zinc-700/60 bg-zinc-950/80 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/40 resize-y disabled:opacity-50 transition-colors"
                 placeholder={`{\n  "base_names": ["kivo", "vestra"],\n  "prefixes": ["get", "try"],\n  "suffixes": ["app", "lab"],\n  "tlds": ["com", "ai", "dev"]\n}`}
-                value={rawJson}
+                value={state.rawJson}
                 onChange={(e) => validateAndSet(e.target.value)}
                 disabled={disabled}
               />
@@ -331,14 +410,12 @@ export function JsonInput({ onInputChange, disabled }: JsonInputProps) {
                 className="hidden"
                 onChange={handleFileUpload}
               />
-              {rawJson && (
+              {state.rawJson && (
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={() => {
-                    setRawJson("");
-                    setError(null);
-                    setParsedSummary(null);
+                    dispatch({ type: "CLEAR" });
                     onInputChange(null);
                   }}
                   disabled={disabled}
@@ -356,7 +433,7 @@ export function JsonInput({ onInputChange, disabled }: JsonInputProps) {
                 key={field.key}
                 label={field.label}
                 placeholder={field.placeholder}
-                tags={builderData[field.key]}
+                tags={state.builderData[field.key]}
                 onAdd={(tag) => handleAddTag(field.key, tag)}
                 onRemove={(idx) => handleRemoveTag(field.key, idx)}
                 disabled={disabled}
@@ -365,21 +442,21 @@ export function JsonInput({ onInputChange, disabled }: JsonInputProps) {
           </div>
         )}
 
-        {error && (
+        {state.error && (
           <div className="flex items-start gap-2 p-2.5 rounded-md bg-red-950/40 border border-red-900/50 text-red-300 text-xs shadow-[0_0_12px_rgba(239,68,68,0.06)]">
-            <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0 glow-red" />
-            <span>{error}</span>
+            <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+            <span>{state.error}</span>
           </div>
         )}
 
-        {parsedSummary && (
+        {state.parsedSummary && (
           <div className="flex items-start gap-2 p-2.5 rounded-md bg-emerald-950/40 border border-emerald-900/50 text-emerald-300 text-xs shadow-[0_0_12px_rgba(16,185,129,0.06)]">
-            <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0 glow-emerald" />
+            <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0" />
             <span>
-              Valid: {parsedSummary.baseNames} base name{parsedSummary.baseNames !== 1 ? "s" : ""},
-              {" "}{parsedSummary.prefixes} prefix{parsedSummary.prefixes !== 1 ? "es" : ""},
-              {" "}{parsedSummary.suffixes} suffix{parsedSummary.suffixes !== 1 ? "es" : ""},
-              {" "}{parsedSummary.tlds} TLD{parsedSummary.tlds !== 1 ? "s" : ""}
+              Valid: {state.parsedSummary.baseNames} base name{state.parsedSummary.baseNames !== 1 ? "s" : ""},
+              {" "}{state.parsedSummary.prefixes} prefix{state.parsedSummary.prefixes !== 1 ? "es" : ""},
+              {" "}{state.parsedSummary.suffixes} suffix{state.parsedSummary.suffixes !== 1 ? "es" : ""},
+              {" "}{state.parsedSummary.tlds} TLD{state.parsedSummary.tlds !== 1 ? "s" : ""}
             </span>
           </div>
         )}
