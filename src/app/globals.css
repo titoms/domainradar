@@ -7,8 +7,8 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-geist), var(--font-ibm-mono), "IBM Plex Mono", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-ibm-mono), "IBM Plex Mono", var(--font-geist-mono), ui-monospace, monospace;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -116,14 +116,64 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+/* ─── Scrollbar ───────────────────────────────────────────── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(63, 63, 70, 0.5) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(63, 63, 70, 0.5);
+  border-radius: 100px;
+  transition: background 0.2s;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(82, 82, 91, 0.7);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-geist), var(--font-ibm-mono), "IBM Plex Mono", system-ui, sans-serif;
   }
   html {
     @apply font-sans;
   }
+  code, pre, .font-mono, textarea {
+    font-family: var(--font-ibm-mono), "IBM Plex Mono", var(--font-geist-mono), monospace !important;
+  }
+}
+
+/* ─── Glow utilities ──────────────────────────────────────── */
+.glow-blue {
+  filter: drop-shadow(0 0 6px rgba(59, 130, 246, 0.4));
+}
+.glow-purple {
+  filter: drop-shadow(0 0 6px rgba(147, 51, 234, 0.4));
+}
+.glow-emerald {
+  filter: drop-shadow(0 0 6px rgba(16, 185, 129, 0.35));
+}
+.glow-amber {
+  filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.35));
+}
+.glow-red {
+  filter: drop-shadow(0 0 6px rgba(239, 68, 68, 0.35));
 }
