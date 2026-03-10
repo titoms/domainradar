@@ -67,7 +67,7 @@ export function SummaryCards({ results }: SummaryCardsProps) {
   ];
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+    <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
       {cards.map(({ label, value, icon: Icon, color, bg, border, glow }) => (
         <Card key={label} className={`${bg} ${border} ${glow}`}>
           <CardContent className="p-3 flex items-center gap-2.5">

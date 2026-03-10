@@ -212,15 +212,20 @@ export class NamecheapProvider implements DomainProvider {
     tlds: string[],
     signal?: AbortSignal
   ): Promise<void> {
-    for (const tld of tlds) {
-      if (this.tldPricingCache.has(tld)) continue;
+    const uncached = tlds.filter((tld) => !this.tldPricingCache.has(tld));
+    if (uncached.length === 0) return;
 
-      try {
-        const price = await this.getTldPrice(tld, signal);
-        this.tldPricingCache.set(tld, price);
-      } catch {
-        this.tldPricingCache.set(tld, null);
-      }
+    // Fetch all uncached TLD prices concurrently
+    const results = await Promise.allSettled(
+      uncached.map((tld) => this.getTldPrice(tld, signal))
+    );
+
+    for (let i = 0; i < uncached.length; i++) {
+      const result = results[i];
+      this.tldPricingCache.set(
+        uncached[i],
+        result.status === "fulfilled" ? result.value : null
+      );
     }
   }
 
